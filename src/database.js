@@ -124,18 +124,28 @@ const Database = async ({ ipfs, identity, address, name, access, directory, meta
    * @async
    */
   const addOperation = async (op) => {
-    const task = async () => {
-      const entry = await log.append(op, { referencesCount })
+    // Queue the log.append operation
+    const entry = await queue.add(async () => {
+      return await log.append(op, { referencesCount })
+    })
+
+    // Queue the sync.add operation
+    await queue.add(async () => {
       await sync.add(entry)
-      if (onUpdate) {
+    })
+
+    // Queue the onUpdate callback
+    if (onUpdate) {
+      await queue.add(async () => {
         await onUpdate(log, entry)
-      }
-      events.emit('update', entry)
-      return entry.hash
+      })
     }
-    const hash = await queue.add(task)
+    // Emit the update event immediately
+    events.emit('update', entry)
+    
     await queue.onIdle()
-    return hash
+
+    return entry.hash
   }
 
   const applyOperation = async (bytes) => {
